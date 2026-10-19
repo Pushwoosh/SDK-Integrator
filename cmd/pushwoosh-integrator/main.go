@@ -7,14 +7,17 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"net/http"
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 
 	"github.com/Pushwoosh/SDK-Integrator/internal/agent"
 	"github.com/Pushwoosh/SDK-Integrator/internal/recipe"
 	"github.com/Pushwoosh/SDK-Integrator/internal/redeem"
 	"github.com/Pushwoosh/SDK-Integrator/internal/ui"
+	"github.com/Pushwoosh/SDK-Integrator/internal/verify"
 	"github.com/Pushwoosh/SDK-Integrator/internal/web"
 )
 
@@ -29,8 +32,9 @@ func main() {
 	yes := fs.Bool("yes", false, "apply without asking")
 	dryRun := fs.Bool("dry-run", false, "show the plan and exit; the code stays unused")
 	force := fs.Bool("force", false, "run even with uncommitted changes")
+	timeout := fs.Duration("timeout", 15*time.Minute, "how long verify waits for a test device")
 	fs.Usage = func() {
-		fmt.Fprintf(os.Stderr, "usage: pushwoosh-integrator [flags] <install-code> [claude|cursor]\n       pushwoosh-integrator redeem <install-code>\n\n")
+		fmt.Fprintf(os.Stderr, "usage: pushwoosh-integrator [flags] <install-code> [claude|cursor]\n       pushwoosh-integrator redeem <install-code>\n       pushwoosh-integrator verify <install-code>\n\n")
 		fs.PrintDefaults()
 	}
 
@@ -41,7 +45,8 @@ func main() {
 		return
 	}
 	redeemOnly := len(args) > 0 && args[0] == "redeem"
-	if redeemOnly {
+	verifyOnly := len(args) > 0 && args[0] == "verify"
+	if redeemOnly || verifyOnly {
 		args = args[1:]
 	}
 	_ = fs.Parse(args)
@@ -58,6 +63,12 @@ func main() {
 			ui.Fail("%v", err)
 		}
 		_ = json.NewEncoder(os.Stdout).Encode(creds)
+
+		return
+	}
+
+	if verifyOnly {
+		runVerify(ctx, *api, code, *timeout)
 
 		return
 	}
@@ -135,6 +146,26 @@ func main() {
 	for _, n := range plan.Notes {
 		ui.Say("Note: %s", n)
 	}
+}
+
+// runVerify works for SDKs with the knock gesture (iOS, Android); the Web SDK has none yet.
+func runVerify(ctx context.Context, api, code string, timeout time.Duration) {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	a, err := verify.Wait(ctx, &http.Client{Timeout: 20 * time.Second}, api, code, 3*time.Second, func(a *verify.Answer) {
+		until := ""
+		if a.WindowUntil != nil {
+			until = " (until " + a.WindowUntil.Local().Format("15:04") + ")"
+		}
+		ui.Say("Waiting for a test device%s.", until)
+		ui.Say("Open the app on a phone and send it to the background and back 6 times within 30 seconds:")
+		ui.Say("the SDK registers the device as a test device, and a test push goes to it.")
+	})
+	if err != nil {
+		ui.Fail("%v", err)
+	}
+	ui.Say("\nTest push sent to device %s. Pushwoosh is working.", a.Hwid)
 }
 
 func show(p *recipe.Plan) {
