@@ -1,0 +1,6 @@
+{
+  "name": "pushwoosh",
+  "description": "Integrate the Pushwoosh SDK into your project and use the Pushwoosh MCP server.",
+  "author": { "name": "Pushwoosh" },
+  "homepage": "https://github.com/Pushwoosh/SDK-Integrator"
+}

@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "pushwoosh": {
+      "type": "http",
+      "url": "https://rpc-api.svc-nue.pushwoosh.com/mcp"
+    }
+  }
+}

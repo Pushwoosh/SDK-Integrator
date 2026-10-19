@@ -1,0 +1,12 @@
+{
+  "name": "pushwoosh-sdk",
+  "owner": { "name": "Pushwoosh" },
+  "metadata": { "description": "Pushwoosh SDK integration for Claude Code" },
+  "plugins": [
+    {
+      "name": "pushwoosh",
+      "source": "./plugins/pushwoosh",
+      "description": "Integrate the Pushwoosh SDK into your project and use the Pushwoosh MCP server."
+    }
+  ]
+}
