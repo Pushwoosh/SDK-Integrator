@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -20,7 +21,27 @@ type Answer struct {
 const (
 	StatusWaiting   = "waiting"
 	StatusDelivered = "delivered"
+
+	maxBackoff = 30 * time.Second
 )
+
+// StatusError is a non-200 answer of the verify endpoint.
+type StatusError struct {
+	Status  int
+	Message string
+}
+
+func (e *StatusError) Error() string { return e.Message }
+
+// transient errors are worth another poll: rate limiting, server trouble, a dropped connection.
+func transient(err error) bool {
+	var se *StatusError
+	if errors.As(err, &se) {
+		return se.Status == http.StatusTooManyRequests || se.Status >= http.StatusInternalServerError
+	}
+
+	return true
+}
 
 // Poll asks the server about the install once; the first call also opens the test-device window.
 func Poll(ctx context.Context, client *http.Client, api, code string) (*Answer, error) {
@@ -45,11 +66,12 @@ func Poll(ctx context.Context, client *http.Client, api, code string) (*Answer, 
 		var e struct {
 			Description string `json:"error_description"`
 		}
+		msg := fmt.Sprintf("verify failed: HTTP %d", resp.StatusCode)
 		if json.Unmarshal(data, &e) == nil && e.Description != "" {
-			return nil, fmt.Errorf("%s", e.Description)
+			msg = e.Description
 		}
 
-		return nil, fmt.Errorf("verify failed: HTTP %d", resp.StatusCode)
+		return nil, &StatusError{Status: resp.StatusCode, Message: msg}
 	}
 
 	var a Answer
@@ -60,29 +82,34 @@ func Poll(ctx context.Context, client *http.Client, api, code string) (*Answer, 
 	return &a, nil
 }
 
-// Wait polls until the test push is sent or ctx ends.
+// Wait polls until the test push is sent or ctx ends, backing off on transient errors.
 func Wait(ctx context.Context, client *http.Client, api, code string, every time.Duration, onWaiting func(*Answer)) (*Answer, error) {
 	first := true
+	delay := every
 	for {
 		a, err := Poll(ctx, client, api, code)
 		if ctx.Err() != nil {
 			return nil, fmt.Errorf("no device registered in time: %w", ctx.Err())
 		}
-		if err != nil {
+		switch {
+		case err != nil && !transient(err):
 			return nil, err
-		}
-		if a.Status == StatusDelivered {
+		case err != nil:
+			delay = min(delay*2, maxBackoff)
+		case a.Status == StatusDelivered:
 			return a, nil
+		default:
+			delay = every
+			if first && onWaiting != nil {
+				onWaiting(a)
+			}
+			first = false
 		}
-		if first && onWaiting != nil {
-			onWaiting(a)
-		}
-		first = false
 
 		select {
 		case <-ctx.Done():
 			return nil, fmt.Errorf("no device registered in time: %w", ctx.Err())
-		case <-time.After(every):
+		case <-time.After(delay):
 		}
 	}
 }
