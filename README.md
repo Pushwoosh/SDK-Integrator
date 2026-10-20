@@ -48,6 +48,9 @@ To pin a version, use `releases/download/vX.Y.Z/install.sh` instead of `releases
 ```
 pushwoosh-integrator [--dry-run] [--yes] [--force] [--dir DIR] [--api URL] <install-code> [claude|cursor]
 pushwoosh-integrator redeem <install-code>   # print application_code and api_token as JSON
+pushwoosh-integrator verify [--timeout 15m] <install-code>   # wait for a test device, then send it a test push
 ```
+
+`verify` works with the same code for an hour after the install. It opens the application's test-device window; open the app and send it to the background and back 6 times within 30 seconds (the knock gesture of the iOS and Android SDKs), and a test push goes to that device. The Web SDK has no knock yet.
 
 The install code works once and expires after 30 minutes. `--dry-run` and a declined confirmation leave it unused.
